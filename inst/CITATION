@@ -1,0 +1,15 @@
+## Published article
+bibentry(
+  bibtype  = "Article",
+  title    = "Pairwise share ratio interpretations of compositional regression models",
+  author   = c(person("Lukas", "Dargel"),
+               person("Christine", "Thomas-Agnan")),
+  journal  = "Computational Statistics & Data Analysis",
+  year     = "2024",
+  volume   = "195",
+  pages    = "107945",
+  doi      = "10.1016/j.csda.2024.107945"
+)
+
+## R package reference generated from DESCRIPTION metadata
+citation(auto = meta)

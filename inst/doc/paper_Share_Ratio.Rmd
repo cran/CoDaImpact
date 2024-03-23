@@ -1,0 +1,14 @@
+---
+title: '“Pairwise share-ratio interpretations of compositional regression models”'
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{“Pairwise share-ratio interpretations of compositional regression models”}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+The details for most of the mathematical tools implemented by **CoDaImpact** are developed in the article "*Pairwise share-ratio interpretations of compositional regression models"* by [Dargel and Thomas-Agnan (2024)](https://doi.org/10.1016/j.csda.2024.107945).
+All numerical results can be reproduced following the instructions on the [articles dedicated GitHub repository](https://github.com/LukeCe/paper_Share_Ratio).
+
+The article is accompanied by a vignette that provides additional illustrations for using **CoDaImpact** based on a case study of electoral sociology that analyses the 2022 French presidential elections.
+This vignette can be downloaded [here](https://htmlpreview.github.io/?https://github.com/LukeCe/paper_Share_Ratio/blob/master/notebooks/Modeling%20the%20French%20presidential%20elections%20of%202022%20with%20CoDa%20tools.html).

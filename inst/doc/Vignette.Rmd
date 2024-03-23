@@ -1,0 +1,717 @@
+---
+title: "Getting started with CoDaImpact"
+author:
+  - "Christine Thomas-Agnan"
+  - "Lukas Dargel"
+  - "Rodrigue Nasr "
+output: 
+  rmarkdown::html_vignette:
+    toc: yes
+    pn: no
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{Getting started with CoDaImpact}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup0, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+oopt <- options(scipen = 999)
+```
+
+# Introduction
+
+**CoDaImpact** is a package for the analysis of covariate impacts in compositional regression models.
+It is designed to work in conjunction with the **compositions** package.
+The **compositions** package is used to fit a regression model involving compositional variables and the **CoDaImpact** package provides new functions to interpret the estimation results.
+
+The interface between the two packages is implemented by the `CoDaImpact::ToSimplex()` function which converts the usual *lm* object into an object of class *lmCoDa*.
+This new class is associated with new interpretation methods that make use of elasticities and semi-elasticities (see Morais and Thomas-Agnan, 2021) and share ratio elasticities (see Dargel and Thomas-Agnan, 2024).
+A finite increments interpretation is also provided in the function `CoDaImpact::VariationTable()`.
+Finally, some visualization tools are provided.
+
+The Dargel and Thomas-Agnan (2024) paper is [illustrated by vignette](https://lukece.github.io/CoDaImpact/articles/paper_Share_Ratio.html) and all materials for reproducing the results in the paper and the vignette [can be found on a dedicated GitHub repository](https://github.com/LukeCe/paper_Share_Ratio).
+
+The following three sections illustrate the use of the **CoDaImpact** package for three classes of regression models: 
+
+  1. scalar on composition case: the response is scalar and at least one of the explanatory variables is a composition, 
+  2. composition on scalar case: the response is a composition and the explanatory variables are scalar,
+  3. composition on composition case: the response is a composition and at least one of the explanatory variables is a composition.
+
+<! -- Section 4 provides implementation details. --> 
+<! -- The package contains three data sets used as examples: `rice_yields`, `car_market`, `elections`. -->
+
+The following code loads all the packages required for this vignette. 
+The **CoDaImpact** package has to be installed from GitHub for now and should be released on CRAN later on. 
+
+
+```{r setup, message=FALSE, warning=FALSE}
+# remotes::install_github("LukeCe/CoDaImpact")
+library(CoDaImpact)
+library(compositions)
+```
+
+# Scalar on composition regression
+
+This case is illustrated using an example from Trinh et al. (2023) studying the impact of climate change on rice yield in Vietnam. 
+
+## Rice yield data
+
+The `rice_yields` dataset contains the rice production "YIELD"  in each province of Vietnam, between 1987 and 2016.
+The data on rice yields originate from "International Rice Research Institute".
+The maximum daily temperature data originate from the database "Climate Prediction Center (CPC)", created by "National Oceanic and Atmospheric Administration (NOAA)".
+The temperatures have been interpolated over the 63 provinces using areal interpolation methods. 
+For this illustration, we group the temperatures in three classes `LOW` ([-6,25.1]), `MEDIUM` ([25.1,35.4])  and `HIGH` ([35.4,45]).
+The precipitation data come from the project "Asian Precipitation-Highly-Resolved Observational Data Integration Towards Evaluation (APHRODITE)".
+
+```{r}
+summary(rice_yields)
+```
+
+The following plot is a ternary diagram of maximum temperature colored according to rice yield. 
+
+```{r}
+whitered_pal <- colorRampPalette(rev(c("beige","orange","red","darkred")))
+
+top100 <- head(rice_yields, 250)
+whitered_col <- whitered_pal(length(top_100$YIELD))
+yield_top100 <- rank(top_100$YIELD,ties.method = "first")
+ylcol_top100 <- whitered_col[yield_top100]
+
+
+layout(matrix(1:2,ncol=2), width = c(2,1),height = c(1,1))
+plot(acomp(top_100$TEMPERATURES),
+     col = ylcol_top100,
+     pch = 16)
+
+
+legend_image <- as.raster(matrix(whitered_pal(20), ncol=1))
+plot(c(0,2),c(0,1),type = 'n', axes = F,xlab = '', ylab = '', main = 'Rice yield')
+yield_range <- range(top_100$YIELD)
+yield_range <- seq(min(yield_range), max(yield_range), l = 5)
+text(x=1.5, y = seq(0,1,l=5), labels = (round(yield_range,1)))
+rasterImage(legend_image, 0, 0, 1,1)
+```
+
+
+
+
+## Regression step with the **compositions** package
+
+
+This model explains a scalar variable `YIELD` with a combination of scalar and compositional variables.
+Before estimating, we have to store our data in a data.frame in such a way that scalar variables are column vectors and compositional variables are matrices. In our dataset, the `TEMPERATURES` variable is already in the matrix format. 
+
+```{r}
+sapply(rice_yields, class)
+```
+
+
+```{r}
+rice_yields$TEMPERATURES[1,] #LOW, MEDIUM, and HIGH, are grouped in TEMPERATURES
+```
+
+We continue to fit a regression model with the tools provided by base R and the **compositions** package, in particular, the `lm()` function and the `alr()` transformation for the `TEMPERATURES` variable.
+
+
+```{r}
+fit_X_compo <- lm(YIELD ~ PRECIPITATION + alr(TEMPERATURES),data = rice_yields)
+class(fit_X_compo)
+```
+
+In the next step the function `ToSimplex()` transforms the above output into a "lmCoDa" class which serves as the interface between the lm-output and the interpretation functions.
+
+```{r}
+fit_X_compo <- ToSimplex(fit_X_compo)
+class(fit_X_compo)
+```
+The same can be achieved in a single step using the `lmCoDa()` function.
+
+```{r}
+fit_X_compo <- lmCoDa(YIELD ~ PRECIPITATION + alr(TEMPERATURES),data = rice_yields)
+class(fit_X_compo)
+```
+
+
+##### coef
+
+The estimated parameters can be retrieved by the `coef()` function.
+For a compositional explanatory variable the option `space` allows choosing between the simplex version, the clr version or the coordinate version of the parameters.
+
+```{r}
+coef(fit_X_compo,space = "simplex")
+coef(fit_X_compo,space = "clr")
+coef(fit_X_compo) # by default use the log-ratio of the estimation, here alr
+```
+
+##### fitted
+
+The `fitted()` function retrieves the fitted values.
+
+```{r}
+head(fitted(fit_X_compo))
+```
+
+##### residuals
+
+The function `residuals()` retrieves the residuals.
+
+```{r}
+head(resid(fit_X_compo))
+```
+
+
+## Interpretation tools
+
+### Finite increments interpretation
+
+Finite increments interpretation as in Muller et al. (2018) can be obtained using outputs in coordinate space.
+For the case of scalar on composition regression, more interpretations are found in Coenders and Pawlovsky-Glahn (2020).
+The different formulations they propose correspond to different parametrizations of the model and we illustrate below their interpretation based on clr coordinates.
+
+
+#### Interpretation with ilr coordinates
+
+Using the approach of Muller et al. (2018) we interpret an additive increment for a specific ilr coordinate that corresponds to a so-called principal balance.
+To use their interpretation we first need to transform the parameters into the appropriate ilr space, which is defined by the contrast matrix.
+The `ilrBase()` function without further arguments leads to the principal balance of the last component against all others.
+
+```{r}
+V_TEMP   <- ilrBase(D = 3)
+V_TEMP
+```
+
+We can use this contrast matrix and the parameters in clr space to obtain the ilr parameters.
+
+```{r}
+clr_TEMP <- coef(fit_X_compo, space = "clr", split = TRUE)[["alr(TEMPERATURES)"]]
+ilr_TEMP <- t(V_TEMP) %*% clr_TEMP
+ilr_TEMP
+```
+
+The interpretation is that an additive increment of one unit in the second ilr coordinate leads to an expected decrease in the rice yield by 0.03 tonnes per hectare.
+This increment means that the ratio between `HIGH` and the geometric mean of `LOW` and `MEDIUM` is approximately multiplied by $\exp(1/0.82)\sim 3.44,$ where $O.82$ is the element $(3,2)$ of the contrast matrix.
+
+In terms of temperature distribution, the above increment implies that the third component `HIGH` of the temperature composition grows at the expense of the others (the geometric mean of the other two) in a way that the ratio of `LOW` to `MEDIUM` remains constant. 
+This corresponds to a change in the `TEMPERATURES` simplex in the direction of the vertex `HIGH`.
+Changing for another vertex is simple by a permutation of the rows of the contrast matrix. 
+
+This method only allows to evaluate the impacts of changing a compositional covariate in the direction of a vertex. 
+In Dargel and Thomas-Agnan (2024) it is shown how the impact of more general changes in explanatory compositions can be interpreted.
+
+#### Interpretation with clr coordinates
+
+The clr parameter estimates for the temperatures are given by:
+
+```{r}
+clr_TEMP
+```
+
+We follow Coenders and Pawlovsky-Glahn (2020) but without changing the base of the logarithm and the normalization constant.
+In these conditions, the first clr parameter for the level `LOW` of temperature is interpreted as the expected change of the response when the ratio between `LOW` and the geometric mean of `LOW`, `MEDIUM` and `HIGH` is multiplied by $\exp(1)\sim 2.7$.
+The resulting change in expected yield is therefore an increase of $0.0016$ tons per hectare. 
+
+#### Variation scenario in the simplex space
+
+To evaluate the impact of a given compositional covariate, we create scenarios of changes in its simplex space described by a linear equation $x(h)=x(0)\oplus h\odot u,$ where $x(0)$ is the initial point, $h$ is the signed-intensity of change and $u$ is a vector of the simplex defining the direction of change.
+We then compute the predicted value of $y(h)$ corresponding to $x(h)$. 
+
+
+We consider a change in the direction of the vertex "LOW" of the variable "TEMPERATURE", and we predict new values of the response variable according to the change in percentage points of this vertex.
+
+```{r}
+VariationScenario(
+  fit_X_compo,
+  Xvar = "TEMPERATURES",
+  Xdir = c(0.2, 0.5, 0.3),
+  inc_size = 2,
+  n_steps = 5,
+  add_opposite = TRUE,
+  obs=43)
+```
+
+For a good visual impression, it is better to use a smaller step size and a larger number of steps.
+Below is the ternary diagram showing the path in the simplex: the initial point is in black and the other ones are colored according to the value of rice yield.
+
+```{r}
+VS2 <- VariationScenario(
+  fit_X_compo,
+  Xvar = "TEMPERATURES",
+  Xdir = c(0.2, 0.5, 0.3),
+  inc_size = .1,
+  n_steps = 40,
+  add_opposite = TRUE,
+  obs=43)
+
+yield_color <- whitered_pal(length(VS2$YIELD))
+yield_color <- yield_color[rank(VS2$YIELD,ties.method = "first")]
+plot(acomp(VS2$X), col = yield_color, pch = 16)
+plot(acomp(VS2["0", "X"]), add = TRUE, pch = 16)
+
+```
+
+
+### Infinitesimal increments interpretation 
+
+#### Semi-elasticities
+
+The use of semi-elasticities for the interpretation of compositional covariates is described in Morais and Thomas-Agnan (2021).
+For a scalar on composition model the `Impacts()` method computes the semi-elasticities for all compositional covariates.
+
+```{r}
+RY_Impacts <- Impacts(fit_X_compo, Xvar = "TEMPERATURES")
+RY_Impacts # here, the semi-elasticity is computed for the variable TEMPERATURES 
+```
+
+#### Increments approach
+
+ Dargel and Thomas-Agnan (2024) use semi-elasticities to interpret infinitesimal changes due to variation scenarios.
+ The function `VariationTable` computes the impact of incremental changes in covariates on the response variable.
+ The covariate increments, corresponding to linear changes in the simplex, are indexed by a direction vector and a signed intensity parameter `inc_size` and are specific to a given observation.
+ Two cases are illustrated below with a direction pointing to a vertex of the simplex and a general direction. For the vertex direction, the `inc_rate` is related to the `inc_size` parameter and measures the relative change of the share corresponding to this vertex.
+
+
+##### Infinitesimal increment: direction pointing to a vertex
+
+The direction pointing to a vertex corresponds to the increments considered by Muller et al. (2018).
+For example, we can measure the change caused by increasing the HIGH share of the `TEMPERATURES` variable by $5\%$, assuming that the ratio between the other two components remains constant, using the function `VariationTable()`.
+ 
+```{r}
+VariationTable(
+  fit_X_compo,
+  obs      =  1,             # indicator of the observation (1 is default)
+  Xvar     = "TEMPERATURES", # covariate for which the impact is computed
+  Xdir     = 'HIGH',         # vertex in the covariate simplex 
+  inc_rate = 0.05)           # signed intensity 
+```
+
+The interpretation of this result is as follows:
+a $5\%$ change of the `HIGH` share assuming the ratio between the `LOW` and the `MEDIUM` share remains constant will result in a $-0.0052$ unit change in `YIELD`.
+
+##### Infinitesimal increment: general direction
+
+Let us now consider changing the covariate in the direction $(0.2,0.55,0.25)$, with an increment size of $0.05$.
+Note that this direction vector will be normalized before being used within the function, and will later be given as output in attributes.
+
+```{r}
+fit_X_compo.varTab <- VariationTable(
+  fit_X_compo,
+  obs      = 10,               # indicator of the observation
+  Xvar     = "TEMPERATURES",   # covariate for which the impact is computed
+  Xdir     = c(0.2,0.55,0.25), # general direction in the covariate simplex
+  inc_size = 0.05)             # signed intensity
+
+fit_X_compo.varTab
+```
+
+```{r}
+attributes(fit_X_compo.varTab)
+```
+The move between the temperature share vector of $(0.0000002999999, 0.9506845561646, 0.0493151438356)$ to $(0.0000002805874, 0.9531436237124, 0.0468560957002)$ results in an increase of the `YIELD` by $0.004932926$ units.
+Note that the Aitchison distance between these two points is equal to the increment size $0.05$.
+
+
+# Composition on scalar regression
+
+This case is illustrated using an example from Morais et al. (2018) studying the impact of some socio-economic variables on the market shares in each of the five market segments A, B, C, D and E.
+
+## Car market data
+
+This dataset shows monthly data on the French automobile market between 2003 and 2015.
+The market is divided into 5 main segments (`SEG_A` to `SEG_E`), according to the size of the vehicle chassis.
+Apart from data on market shares, we have four classical variables, such as `HOUSEHOLD_EXPENDITURE`, gross domestic product (`GDP`), the average national price of diesel fuel (`GAS_PRICE`), and `SCRAPPING_SUBSIDY`.
+We also have the `DATE`, generally the beginning of each month in which the sale has taken place.
+
+```{r}
+summary(car_market)
+```
+
+```{r}
+opar <- par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
+plot(x = car_market$DATE, y = car_market$SEG_A,type = "l", col = "red",
+     main = "French vehicles market shares from 2003 to 2015", 
+     xlab = "DATE", ylab = "VALUE", ylim = c(0,0.5))
+lines(x = car_market$DATE, y = car_market$SEG_B,type = "l", col = "blue" )
+lines(x = car_market$DATE, y = car_market$SEG_C,type = "l", col = "green")
+lines(x = car_market$DATE, y = car_market$SEG_D,type = "l", col = "orange")
+lines(x = car_market$DATE, y = car_market$SEG_E,type = "l", col = "black")
+legend("topright",
+       legend = paste0("Segment ", LETTERS[1:5]),
+       col = c("red", "blue", "green", "orange", "black"),
+       lty = 1,
+       inset=c(-0.35,0))
+par(opar)
+```
+
+## Regression step
+
+We directly use the `lmCoDa()` function to fit a regression model explaining the market shares as a function of household expenditure, GDP, gas price and an indicator of the scrapping incentive period.
+As previously, the compositional variable must be included as a matrix. 
+
+```{r}
+car_market$SEG <- as.matrix(car_market[,c("SEG_A","SEG_B","SEG_C","SEG_D","SEG_E")])
+```
+
+Below we transform the response by an ilr, using the `ilr()` function of the **compositions** package.  
+
+```{r}
+fit_Y_compo <- lmCoDa(
+  ilr(SEG) ~ HOUSEHOLD_EXPENDITURE + GDP + GAS_PRICE + SCRAPPING_SUBSIDY,
+  data=car_market)
+```
+
+### coef
+
+The estimated coefficients are retrieved using the `coef()` function.
+
+```{r}
+coef(fit_Y_compo, space = "simplex")  # coefficients in the simplex
+coef(fit_Y_compo)                     # ... in ilr space
+```
+
+
+### fitted
+
+For models with compositional response the `fitted()` also has a space argument allowing to retrieve the fitted values in coordinate space, clr space or in the simplex.
+
+```{r}
+head(fitted(fit_Y_compo, space = "simplex"))  # coefficients in the simplex
+head(fitted(fit_Y_compo, space = "clr"))      # ... in clr space
+head(fitted(fit_Y_compo))                     # ... in ilr space (as in the estimation)
+```
+
+### resid
+
+The same functionality is available for the residuals.
+
+```{r}
+head(resid(fit_Y_compo, space = "simplex"))  # coefficients in the simplex
+head(resid(fit_Y_compo, space = "clr"))      # ... in clr space
+head(resid(fit_Y_compo))                     # ... in ilr space (as in the estimation)
+```
+
+## Interpretation tools
+
+### Finite increments interpretation
+
+#### Interpretation with ilr coordinates 
+
+Finite increments interpretation as in Muller et al. (2018) can be obtained using coordinate space outputs.
+
+```{r}
+coef(fit_Y_compo)
+```
+ Following Muller et al. (2018), using the default contrast matrix below, we can interpret the impact of an additive change in the household expenditure variable on the ratio between segment E and the geometric mean of the other segments.
+ 
+```{r}
+ilrBase(D = 5) # default contrast matrix
+```
+
+If the household expenditure, expressed in chain-linked prices of the previous year, increases by $250$ million euros, approximately one percent of its range, the ratio between segment E and the geometric mean of the other segments is multiplied by $\exp((-0.0025) * 250/0.89)\sim 0.49,$ hence approximately divided by two.
+However, it is difficult to describe the simultaneous changes in the ratio between the other segments with this approach. 
+
+#### Variation scenario in real space
+
+In this part, we are interested in presenting on a graph the variations of the fitted shares corresponding to a change scenario of the variable "HOUSEHOLD_EXPENDITURE".
+In this case, since the variable to be changed is scalar, the scenario of change is just a regular grid of values defined by a step size, a number of steps and an initial observation.
+The first step  `VariationScenario()` creates the grid for the covariate ($X$) and computes the corresponding fitted values ($Y$).
+
+```{r}
+vs_exp2 <- VariationScenario(
+  fit_Y_compo,
+  Xvar = "HOUSEHOLD_EXPENDITURE",
+  obs = 1,
+  inc_size = 100,
+  n_steps = 150,
+  add_opposite = TRUE)
+```
+
+```{r}
+plot(x = vs_exp2$HOUSEHOLD_EXPENDITURE, y = vs_exp2$Y[,1],type = "l", col = "red",
+     main = "Variation scenario of houshold expenditure for observation 1",
+     xlab = "Household expenditure", ylab = "Market share of segment")
+lines(x = vs_exp2$HOUSEHOLD_EXPENDITURE, y = vs_exp2$Y[,2],type = "l", col = "blue" )
+lines(x = vs_exp2$HOUSEHOLD_EXPENDITURE, y = vs_exp2$Y[,3],type = "l", col = "green")
+lines(x = vs_exp2$HOUSEHOLD_EXPENDITURE, y = vs_exp2$Y[,4],type = "l", col = "orange")
+lines(x = vs_exp2$HOUSEHOLD_EXPENDITURE, y = vs_exp2$Y[,5],type = "l", col = "black")
+legend("topleft",
+       legend = paste0("SEG_", LETTERS[1:5]),
+       col = c("red", "blue", "green", "orange", "black"),
+       lty = 1)
+```
+
+
+
+### Infinitesimal increments interpretation
+
+#### Semi-elasticities 
+
+The use of semi-elasticities for the interpretation of compositional covariates is described in Morais and Thomas-Agnan (2021).
+The only difference with the previous section is that it involves derivatives of the logarithm of the $Y$ components with respect to $X$, in contrast with derivatives of $Y$ with respect to the logarithm of the components of $X$.
+The `Impacts()` function computes these elasticities.
+
+```{r}
+Impacts(fit_Y_compo,
+        Xvar = "HOUSEHOLD_EXPENDITURE",
+        obs=4)
+```
+The semi-elasticities are then used for evaluating the impact on $Y$ of an infinitesimal additive change of any of the scalar explanatory variables.
+
+#### Infinitesimal Increments approach
+
+For example, we can measure the change caused by an increase of $2500$ million euros in `HOUSEHOLD_EXPENDITURE` using the function `VariationTable()`.
+
+```{r}
+fit_Y_compo.VarTab <- VariationTable(
+  fit_Y_compo,                      # model output
+  Xvar = "HOUSEHOLD_EXPENDITURE",   # variable to be changed
+  inc_size = 2500,                  # additive increment of X
+  obs = 1)                          # observation index
+
+fit_Y_compo.VarTab
+```
+
+For the first month, an increase of $2500$  million euros of total `HOUSEHOLD_EXPENDITURE` will result in a  decrease of 2 percentage points in the "SEG_D" share, and an increase of 3 percentage points in the "SEG_B" share. 
+We can visualize these changes more globally with a barplot.
+
+```{r}
+barplot(as.matrix(fit_Y_compo.VarTab[5,]),col = "cyan")
+title("Market segment shares variations")
+```
+
+# Composition on composition regression
+
+This case is illustrated using an example from Nguyen et. al (2020) studying the impact of some socio-economic variables on the outcome of French departmental elections in 2015.
+ 
+## Election data
+ 
+This dataset contains the vote shares for 3 groups of parties (`left`, `right`, `extreme_right`) in different departments of France in the 2015 French departmental election for 95 departments in France.
+The election results originate from the French 'Ministry of the Interior'.
+The corresponding socio-economic data (for 2014) have been downloaded from the [INSEE website](https://www.insee.fr/fr/accueil).
+The regression involves the following explanatory variables: 
+
+- four scalar variables:  the unemployment rate (`unemp_rate`), the proportion of people who own assets (`asset_owner_rate`), the proportion of people who pay income tax (`income_taxpayer_rate`), the proportion of foreigners (`forgeigner_rate`).
+- two compositional variables: 
+  - the Age variable has three levels: `Age_1839` for people from 18 to 39 years old, `Age_4064` for people from 40 to 64 years old, and `Age_65plus` for people over 65.
+  - Diploma has three levels: `Educ_BeforeHighschool` for people with at most some secondary education, `Educ_Highschool` for people with at least secondary education and at most a high school diploma, and `Educ_Higher` for people with a university diploma.
+
+```{r}
+data("election")
+summary(election[1:3])
+summary(election[4:6])
+summary(election[7:9])
+summary(election[10:13])
+```
+
+## Regression step
+
+First, we must ensure that all compositional variables are stored as a matrix. 
+
+```{r}
+election$VOTE <- as.matrix(election[,c("left","right","extreme_right")])
+election$AGE  <- as.matrix(election[,c("Age_1839","Age_4064","Age_65plus")])
+election$EDUC <- as.matrix(election[,c("Educ_BeforeHighschool","Educ_Highschool","Educ_Higher")])
+```
+
+The next step consists of applying a log-ratio transformation (alr or ilr) to the compositional variables and then using the "lm" function to perform regression in coordinates space. 
+In this example, the response variable, `VOTE`, is transformed by an ilr, the variable `Age` is transformed by an alr, and `EDUC` is transformed by an ilr. 
+
+```{r}
+fit_YX_compo <- lmCoDa(
+  ilr(VOTE) ~
+  alr(AGE) + unemp_rate + asset_owner_rate +
+  ilr(EDUC) + income_taxpayer_rate + forgeigner_rate,
+  data = election)
+```
+
+With the `coef()` function we can access the estimated coefficients in coordinate space, as well as in the simplex:
+
+```{r}
+coef(fit_YX_compo)
+coef(fit_YX_compo, space = "simplex")
+```
+
+Standard errors and confidence intervals are provided for the clr of parameters by the function `confint()`.
+The following example is for the case of the compositional explanatory variable `AGE`.
+
+```{r}
+confint(fit_YX_compo, parm = "AGE")
+```
+When providing the argument `y_ref` the function returns the same information for the differences of clr parameter values, which coincide with differences in elasticities (Dargel and Thomas-Agnan 2024).
+
+```{r}
+confint(fit_YX_compo, parm = "AGE", y_ref = "left")
+```
+
+The following example is for the case of the scalar explanatory variable `unemp_rate`. 
+
+```{r}
+confint(fit_YX_compo, parm = "unemp_rate")
+```
+
+In this case the difference in clr parameters coincides with a semi-elasticities difference.
+
+```{r}
+confint(fit_YX_compo, parm = "unemp_rate", y_ref = "left")
+```
+
+Fitted values and residuals, both in the simplex space, can be accessed directly using fitted, and residuals functions as shown previously.
+
+## Interpretation tools
+
+### Finite increments
+
+#### Interpretation with ilr coordinates
+
+Finite increments interpretation as in Muller et al. (2018) can be obtained using coordinate space outputs, but this time we need to consider two contrast matrices, one for the response and one for the explanatory composition.
+In the present model, the `VOTE` and the `EDUC` compositions are both ilr transformed with the default contrast matrix.
+
+```{r}
+ilrBase(D = 3)
+```
+
+This means we can interpret the element in the last row and last column of the corresponding parameter matrix that is expressed using the ilr spaces of both the response `VOTE` and the "EDUC" variables (whose contrast matrices coincide in our example).
+
+```{r}
+coef(fit_YX_compo, split = TRUE)[["ilr(EDUC)"]]
+```
+
+The value of about $0.90777$ indicates that an additive unit increase in the second ilr coordinate of the explanatory `EDUC` composition leads to an additive increase of the second ilr coordinate of the response `VOTE` composition. 
+Given the form of the contrast matrix, these ilr coordinates can be interpreted as principal balances of the last component against the first two in both compositions.
+The above change in education corresponds to a move in the direction of the high education vertex in the simplex.
+Therefore, a multiplication of the ratio between the higher education level to the geometric mean of the other two by $\exp(1/081) \sim 3.43$ induces a multiplication of the ratio of the vote share for the extreme right party to the geometric mean of the other two parties by $\exp(0.91/081)\sim 3.07.$
+If one wishes to evaluate the impact of this change on other ratios of $Y$ it would mean changing the contrast matrix of the response.
+Similarly, if one wishes to evaluate the impact of changing the education composition in the direction of the other two vertices, it would mean changing the $X$ contrast matrix. 
+
+#### VariationScenario
+
+As in the case of scalar on composition regression, to evaluate the impact of a given compositional covariate, we create scenarios of changes in its simplex space described by a linear equation $x(h)=x(0)\oplus h\odot u,$ where $x(0)$ is the initial point, $h$ is the signed-intensity of change and $u$ is a vector of the simplex defining the direction of change.
+We then compute the predicted value $y(h)$ corresponding to $x(h)$, keeping the other covariates at their value for the initial point. 
+
+To present the variations of $Y$ induced by a change scenario of $X$, we propose two plots.
+The first one is a graph of the shares of $Y$ as a function of one of the shares of $X$ and the second one presents the evolution of the other shares of $X$.
+In the following illustration, we choose the direction of change joining the initial point (in this case, observation 1, Landes department) to the vertex `Age_1839`.
+
+
+```{r, fig.width=10, fig.height=10}
+VS_election<-VariationScenario(
+  fit_YX_compo,
+  Xvar = "AGE",
+  Xdir = "Age_1839",
+  n_steps = 100,
+  obs = 1)
+
+
+opar <- par(mfrow = c(2,1), mar = c(5,4,1,2))
+plot(x = VS_election$X[,1],  y = VS_election$Y[,1], col = "Orange",
+     xlim = c(0,1), ylim = c(0,1), xlab = "% Age_1839", ylab = "% VOTE")
+lines(x = VS_election$X[,1],  y = VS_election$Y[,1], lwd = 1.5, col = "orange")
+lines(x = VS_election$X[,1],  y = VS_election$Y[,2], lwd = 1.5, col = "darkblue")
+lines(x = VS_election$X[,1],  y = VS_election$Y[,3], lwd = 1.5, col = "red")
+legend("top",
+       legend = c("left", "right", "extreme_right"),
+       col = c("orange", "darkblue", "red"),
+       lty = 1)
+
+
+plot(x = VS_election$X[,1],  y = VS_election$X[,1], col = "Orange",
+     xlim = c(0,1), ylim = c(0,1), xlab = "% Age_1839", ylab = "% AGE")
+lines(x = VS_election$X[,1],  y = VS_election$X[,1], lwd = 1.5, col = "orange")
+lines(x = VS_election$X[,1],  y = VS_election$X[,2], lwd = 1.5, col = "darkblue")
+lines(x = VS_election$X[,1],  y = VS_election$X[,3], lwd = 1.5, col = "red")
+legend("top",
+       legend = c("18-39","40-64", "65_plus"),
+       col = c("orange", "darkblue", "red"),
+       lty = 1)
+par(opar)
+```
+
+
+
+The vertical line corresponds to the initial department of Landes, and we can read the values of its fitted vote shares on the first graph and the values of its age characteristics on the second.  
+For the specified direction, the bottom graph shows that an increase in the share of voters aged between $18$ and $39$ years corresponds to a linear decrease in the other shares.
+On the top graph, we see that an increase in the share of voters aged between $18$ and $39$ years induces an increase in the share of the extreme right, a decrease in the share of the right parties, and a simultaneous decrease in the left party's share.
+
+
+
+
+### Infinitesimal increments
+
+#### Elasticities
+
+
+The function `Impacts()` computes elasticities (or semi-elasticities, depending on the nature of the considered covariate) of covariates for a given observation.
+This function takes a "lmCoDa" object as input, along with the covariate's name and the index of the observation.
+
+
+```{r}
+Impacts(fit_YX_compo, Xvar = 'AGE', obs = 3)
+```
+The semi-elasticities are then used for evaluating the impact on $Y$ of an infinitesimal additive change of any of the scalar explanatory variables.
+
+#### Increments approach
+
+##### Infinitesimal increment: direction pointing to a vertex
+
+ For example, we can measure the change caused by increasing the `Higher` share of the `EDUC` variable by 5%, assuming that the ratio between the other two components remains constant, using the function `VariationTable()`. 
+ Assuming that the voting population for the first department is $100\;000$ individuals (we do not have this information in the dataset).
+ The total of the response must be specified by the user in case he wants to know the variation in units.
+
+
+```{r}
+VariationTable(
+  fit_YX_compo,
+  Xvar = "AGE",
+  Xdir = 'Age_1839',
+  Ytotal = 100000,
+  inc_rate = 0.05)
+```
+
+
+
+A $5\%$ increase in the direction of `Age_1839` will result in a $0.099$ percentage points decrease in the `left` share, a $0.63$ percentage points decrease in the `right` proportion, and a $0.73$ percentage points increase in the `extreme_right` share.
+In units these changes correspond respectively to a decrease of $99$ votes for the  `left` parties, a decrease of $634$ votes for the `right` parties and an increase of $733$ votes for the  `extreme_right` share.
+It is easy to check that the sum of these changes is zero.
+
+##### Infinitesimal increment: General direction
+
+For a general direction  $(0.45,0.2,0.35)$, with an increment size of $0.1$, we get the following results. 
+
+
+```{r}
+VT <- VariationTable(
+  fit_YX_compo,
+  Xvar = "AGE",
+  Xdir = c(0.45,0.2,0.35) ,
+  inc_size=0.1,
+  Ytotal = 100000)
+VT
+```
+Note that this direction vector will be normalized before being used within
+the function, and will later be given as output in the table's attributes.
+
+```{r}
+attributes(VT)
+```
+
+
+<!-- # Implementation details -->
+<!-- to find the coordinates of the parameters of the model in the simplex and clr spaces after regression, and then evaluate the impact, to finally interpret it, we constructed a function that retrieves all the information necessary to interpret the compositional regression's results in the simplex or clr spaces, including all the parameters of the regression in the simplex and clr spaces. -->
+<!-- It uses an internal function (transformationSummary) to summarize the regression's information. It returns an object of class 'lmSimplex' that contains the lm regression results, along with a list 'trSry', a list that contains the transformationSummary results, a data.frame, where rows correspond to the variables and columns to different information sets related to the transformations involved with each variable. -->
+
+```{r, include=FALSE}
+options(oopt)
+```
+
+
+# References
+
+Coenders, G. and Pawlowsky-Glahn, V. (2020). "On interpretations of tests and effect sizes in regression models with a compositional predictor." SORT-Statistics and Operations Research Transactions, pages 201–220.
+
+
+Dargel, L., and C. Thomas-Agnan (2024). "Pairwise share-ratio interpretations of compositional regression models." Computational Statistics & Data Analysis, Volume 195, pages 107945
+
+Morais, J., and C. Thomas-Agnan. (2021) "Impact of covariates in compositional models and simplicial derivatives." Austrian Journal of Statistics 50.2 (2021): 1-15.
+
+Muller I, Hron K, Fiserova E, Smahaj J, Cakirpaloglu P, Vancakova J (2018). "Interpretation of Compositional Regression with Application to Time Budget Analysis." Austrian Journal of Statistics, 47(2).
